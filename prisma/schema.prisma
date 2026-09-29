@@ -1,0 +1,196 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum EventStatus {
+  RECEIVED
+  QUEUED
+  ANALYZING
+  READY
+  SKIPPED
+  FAILED
+}
+
+enum ChangeType {
+  FEATURE
+  BUG_FIX
+  REFACTOR
+  SECURITY
+  PERFORMANCE
+  UI
+  DATABASE
+  INFRASTRUCTURE
+  DOCUMENTATION
+  TESTS
+  DEPENDENCIES
+  OTHER
+}
+
+enum ImpactLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model Repository {
+  id            String              @id @default(cuid())
+  githubId      String              @unique
+  fullName      String              @unique
+  name          String
+  owner         String
+  isPrivate     Boolean             @default(false)
+  defaultBranch String?
+  aiEnabled     Boolean?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  events        ChangeEvent[]
+  digests       DailyDigest[]
+  summaries     RepositorySummary[]
+}
+
+model ChangeEvent {
+  id            String        @id @default(cuid())
+  deliveryId    String        @unique
+  githubEvent   String
+  action        String?
+  entityType    String
+  sha           String?
+  prNumber      Int?
+  title         String?
+  message       String?
+  branch        String?
+  author        String?
+  additions     Int           @default(0)
+  deletions     Int           @default(0)
+  filesChanged  Int           @default(0)
+  rawPayload    Json
+  status        EventStatus   @default(RECEIVED)
+  errorMessage  String?
+  occurredAt    DateTime      @default(now())
+  receivedAt    DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  repositoryId  String
+  repository    Repository    @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  files         ChangedFile[]
+  aiAnalysis    AIAnalysis?
+  usage         AIUsage[]
+
+  @@index([repositoryId, occurredAt])
+  @@index([status, receivedAt])
+}
+
+model ChangedFile {
+  id         String      @id @default(cuid())
+  eventId    String
+  event      ChangeEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  path       String
+  status     String?
+  additions  Int         @default(0)
+  deletions  Int         @default(0)
+  patch      String?
+  skippedAI  Boolean     @default(false)
+  skipReason String?
+
+  @@unique([eventId, path])
+  @@index([eventId])
+}
+
+model AIAnalysis {
+  id               String       @id @default(cuid())
+  eventId          String       @unique
+  event            ChangeEvent  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  headline         String
+  shortSummary     String
+  whatChanged      String
+  whyItMatters     String
+  technicalChanges String[]
+  changeType       ChangeType
+  impactLevel      ImpactLevel
+  impactReason     String
+  affectedAreas    String[]
+  warnings         String[]
+  model            String
+  inputTokens      Int          @default(0)
+  outputTokens     Int          @default(0)
+  estimatedCostUsd Float        @default(0)
+  embedding        Json?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+}
+
+model DailyDigest {
+  id            String     @id @default(cuid())
+  repositoryId  String
+  repository    Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  date          DateTime
+  summary       String
+  highlights    String[]
+  important     String[]
+  commitCount   Int        @default(0)
+  prCount       Int        @default(0)
+  filesChanged  Int        @default(0)
+  model         String
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@unique([repositoryId, date])
+}
+
+model RepositorySummary {
+  id            String     @id @default(cuid())
+  repositoryId  String
+  repository    Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  rangeKey      String
+  periodStart   DateTime
+  periodEnd     DateTime
+  summary       String
+  highlights    String[]
+  important     String[]
+  model         String
+  eventCount    Int        @default(0)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@index([repositoryId, rangeKey, periodEnd])
+}
+
+model AISettings {
+  id                         String   @id @default("singleton")
+  aiAnalysis                 Boolean  @default(true)
+  analyzePrivateRepositories Boolean  @default(false)
+  aiPushSummaries            Boolean  @default(true)
+  dailyAIDigest              Boolean  @default(true)
+  detailedAnalysis           Boolean  @default(true)
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AIUsage {
+  id               String       @id @default(cuid())
+  eventId          String?
+  event            ChangeEvent? @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  purpose          String
+  model            String
+  inputTokens      Int          @default(0)
+  outputTokens     Int          @default(0)
+  estimatedCostUsd Float        @default(0)
+  createdAt        DateTime     @default(now())
+
+  @@index([createdAt])
+  @@index([eventId])
+}
